@@ -31,9 +31,10 @@ usage: $(basename -- "$0") [--profile speed|range|max|duo|duo128|quad|vision] [-
        [--estimate] [--dry-run] [--no-vram-check] [--list] [--help]
        [-- <extra llama-server args...>]
 
-  --profile speed|range|max|duo|duo128|quad|vision  preset (default: range)
+  --profile speed|range|max|duo|duo128|quad|vision|single192  preset (default: range)
                             speed:  MTP draft file, 64K ctx, q4_0 KV, draft-mtp n=2
                             range:  base file, 96K ctx, q8_0 KV
+                            single192: MTP draft file, 192K ctx, q4_0 KV, draft-mtp n=2
                             max:    base file, 256K ctx, q4_0 KV, no spec
                             duo:    base file, 2x96K slots, q4_0 KV, no spec
                                     (two independent sessions)
@@ -150,7 +151,13 @@ case "$profile" in
     file="$gguf_dir/$base_file"; ctx=65536; kv_type="q8_0"
     spec=()
     profile_label="base file + mmproj, 64K context, q8_0 KV, no spec" ;;
-  *) printf 'Unknown --profile: %s (want speed|range|max|duo|duo128|quad|vision)\n' "$profile" >&2; exit 1 ;;
+  single192)
+    # MTP draft file, 192K context, q4_0 KV, draft-mtp n=2, single session.
+    # MTP needs ~draft/28 of KV overhead; 192K * q4_0 fits the 24GB card.
+    file="$gguf_dir/$mtp_file"; ctx=196608; kv_type="q4_0"
+    spec=(--spec-type draft-mtp --spec-draft-n-max 2)
+    profile_label="MTP draft file, 192K context, q4_0 KV, draft-mtp n=2" ;;
+  *) printf 'Unknown --profile: %s (want speed|range|max|duo|duo128|quad|vision|single192)\n' "$profile" >&2; exit 1 ;;
 esac
 if [[ -n "$ctx_override" ]]; then ctx="$ctx_override"; fi
 
