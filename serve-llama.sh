@@ -18,7 +18,9 @@ export LC_ALL=C LC_NUMERIC=C
 
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 gguf_dir_default="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/models"
-docker_image="${NINFER_LLAMA_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda}"
+# Pin the build: the floating :server-cuda tag silently moved from b11641 to
+# b11854 in nine days. Bump this tag deliberately after a smoke test.
+docker_image="${NINFER_LLAMA_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b11854}"
 base_file="Qwen3.8-27B-GSQ-RCO-IQ3_S.gguf"
 mtp_file="Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf"
 mmproj_file_name="mmproj-Qwen3.8-27B-BF16.gguf"
