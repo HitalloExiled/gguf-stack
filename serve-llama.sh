@@ -20,7 +20,8 @@ root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 gguf_dir_default="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/models"
 # Pin the build: the floating :server-cuda tag silently moved from b11641 to
 # b11854 in nine days. Bump this tag deliberately after a smoke test.
-docker_image="${NINFER_LLAMA_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b11854}"
+# b12110 is the v0.9.0 nightly (2026-11-04): MTP checkpoint and KV-cache fixes.
+docker_image="${NINFER_LLAMA_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b12110}"
 base_file="Qwen3.8-27B-GSQ-RCO-IQ3_S.gguf"
 mtp_file="Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf"
 mmproj_file_name="mmproj-Qwen3.8-27B-BF16.gguf"
@@ -55,6 +56,12 @@ usage: $(basename -- "$0") [--profile speed|range|max|duo|duo128|quad|vision] [-
   --no-vram-check skip the VRAM pre-flight gate
   --list          list available .gguf files and exit 0
   -- <args...>    extra args appended to llama-server
+
+Env:
+  NINFER_LLAMA_IMAGE    image tag (default: server-cuda-b12110, pinned)
+  NINFER_GGUF_DIR       model dir (default: <stack>/models)
+  NINFER_SLOT_CACHE_DIR host dir bound to /slot-cache for slot save/restore
+                        (default: <stack>/slot-cache)
 
 Profiles follow the 16GB-threshold recipe (GSQ/RCO IQ3_S); contexts are
 scaled to the 24GB card. KV per-token numbers are calibrated from server
@@ -105,6 +112,12 @@ while (( $# )); do
 done
 
 gguf_dir="${NINFER_GGUF_DIR:-$gguf_dir_default}"
+# Slot cache: the router saves warm slots here before stopping the backend and
+# restores them after the next boot (same weights file only). Bound to the
+# container so `--slot-save-path` has a writable directory; the router is the
+# only client of the slot API and never proxies it.
+slot_dir="${NINFER_SLOT_CACHE_DIR:-$root/slot-cache}"
+mkdir -p "$slot_dir"
 # Multimodal is lazy: the mmproj encoder (+0.9GB resident) loads only for the
 # vision profile or an explicit --mmproj on. The router upgrades a running
 # text tier in place on the first image request instead (same tier, reboot).
@@ -267,6 +280,7 @@ args=(
   -fa on --jinja
   --temp 1.0 --top-p 0.95 --top-k 20 --min-p 0.00
   "${spec[@]}"
+  --slot-save-path /slot-cache
   --host 0.0.0.0 --port "$port"
 )
 if [[ -n "$mmproj_file" ]]; then
@@ -281,8 +295,8 @@ if (( ${#passthrough[@]} )); then
 fi
 
 if [[ "$dry_run" == "1" ]]; then
-  printf 'docker run --gpus all --rm -p %s:%s -v %s:/models:ro %s' \
-    "$port" "$port" "$gguf_dir" "$docker_image"
+  printf 'docker run --gpus all --rm -p 127.0.0.1:%s:%s -v %s:/models:ro -v %s:/slot-cache %s' \
+    "$port" "$port" "$gguf_dir" "$slot_dir" "$docker_image"
   printf ' %q' "${args[@]}"
   printf '\n'
   exit 0
@@ -290,5 +304,8 @@ fi
 
 printf 'Starting llama-server Qwen3.8-GSQ-RCO (%s) at http://%s:%s/v1\n' \
   "$profile_label" "$host" "$port"
-exec docker run --gpus all --rm --init -p "$port:$port" \
-  -v "$gguf_dir:/models:ro" "$docker_image" "${args[@]}"
+# Loopback publish: the slot API writes files and must not be reachable from
+# the LAN; the router is local.
+exec docker run --gpus all --rm --init -p "127.0.0.1:$port:$port" \
+  -v "$gguf_dir:/models:ro" -v "$slot_dir:/slot-cache" \
+  "$docker_image" "${args[@]}"
