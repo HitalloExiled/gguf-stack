@@ -14,6 +14,7 @@
 #
 # Exit codes: 0 ok, 1 usage, 2 missing image/model, 3 insufficient VRAM.
 set -euo pipefail
+
 export LC_ALL=C LC_NUMERIC=C
 
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,7 +22,7 @@ gguf_dir_default="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/models"
 # Pin the build: the floating :server-cuda tag silently moved from b11641 to
 # b11854 in nine days. Bump this tag deliberately after a smoke test.
 # b12110 is the v0.9.0 nightly (2026-11-04): MTP checkpoint and KV-cache fixes.
-docker_image="${NINFER_LLAMA_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b12110}"
+docker_image="${MODEL_ROUTER_LLAMA_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b12110}"
 base_file="Qwen3.8-27B-GSQ-RCO-IQ3_S.gguf"
 mtp_file="Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf"
 mmproj_file_name="mmproj-Qwen3.8-27B-BF16.gguf"
@@ -58,9 +59,9 @@ usage: $(basename -- "$0") [--profile speed|range|max|duo|duo128|quad|vision] [-
   -- <args...>    extra args appended to llama-server
 
 Env:
-  NINFER_LLAMA_IMAGE    image tag (default: server-cuda-b12110, pinned)
-  NINFER_GGUF_DIR       model dir (default: <stack>/models)
-  NINFER_SLOT_CACHE_DIR host dir bound to /slot-cache for slot save/restore
+  MODEL_ROUTER_LLAMA_IMAGE    image tag (default: server-cuda-b12110, pinned)
+  MODEL_ROUTER_GGUF_DIR       model dir (default: <stack>/models)
+  MODEL_ROUTER_SLOT_CACHE_DIR host dir bound to /slot-cache for slot save/restore
                         (default: <stack>/slot-cache)
 
 Profiles follow the 16GB-threshold recipe (GSQ/RCO IQ3_S); contexts are
@@ -70,7 +71,7 @@ USAGE
 }
 
 profile="range"
-port="${NINFER_LLAMA_PORT:-18090}"
+port="${MODEL_ROUTER_LLAMA_PORT:-18090}"
 host="127.0.0.1"
 ctx_override=""
 parallel_slots="1"
@@ -78,7 +79,7 @@ mmproj_mode="auto"
 estimate_only=0
 dry_run=0
 vram_check=1
-if [[ "${NINFER_NO_VRAM_CHECK:-0}" == "1" ]]; then vram_check=0; fi
+if [[ "${MODEL_ROUTER_NO_VRAM_CHECK:-0}" == "1" ]]; then vram_check=0; fi
 passthrough=()
 
 while (( $# )); do
@@ -101,7 +102,7 @@ while (( $# )); do
     --no-vram-check) vram_check=0; shift ;;
     --list)
       shopt -s nullglob
-      for f in "${NINFER_GGUF_DIR:-$gguf_dir_default}"/*.gguf; do
+      for f in "${MODEL_ROUTER_GGUF_DIR:-$gguf_dir_default}"/*.gguf; do
         printf '%s\n' "$(basename -- "$f")"
       done
       exit 0 ;;
@@ -111,12 +112,12 @@ while (( $# )); do
   esac
 done
 
-gguf_dir="${NINFER_GGUF_DIR:-$gguf_dir_default}"
+gguf_dir="${MODEL_ROUTER_GGUF_DIR:-$gguf_dir_default}"
 # Slot cache: the router saves warm slots here before stopping the backend and
 # restores them after the next boot (same weights file only). Bound to the
 # container so `--slot-save-path` has a writable directory; the router is the
 # only client of the slot API and never proxies it.
-slot_dir="${NINFER_SLOT_CACHE_DIR:-$root/slot-cache}"
+slot_dir="${MODEL_ROUTER_SLOT_CACHE_DIR:-$root/slot-cache}"
 mkdir -p "$slot_dir"
 # Multimodal is lazy: the mmproj encoder (+0.9GB resident) loads only for the
 # vision profile or an explicit --mmproj on. The router upgrades a running
@@ -257,7 +258,7 @@ if [[ "$vram_check" == "1" ]]; then
       if (( need_mib > free_mib )); then
         printf 'error: insufficient free VRAM: %d MiB free, ~%d MiB required\n' \
           "$free_mib" "$need_mib" >&2
-        printf 'Free VRAM (close GPU-hungry apps?) or set NINFER_MIN_FREE_GIB to override.\n' >&2
+        printf 'Free VRAM (close GPU-hungry apps?) or set MODEL_ROUTER_MIN_FREE_GIB to override.\n' >&2
         exit 3
       fi
       if (( need_mib + 1024 > free_mib )); then
