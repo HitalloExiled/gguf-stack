@@ -21,8 +21,9 @@ root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 gguf_dir_default="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/models"
 # Pin the build: the floating :server-cuda tag silently moved from b11641 to
 # b11854 in nine days. Bump this tag deliberately after a smoke test.
-# b12110 is the v0.9.0 nightly (2026-11-04): MTP checkpoint and KV-cache fixes.
-docker_image="${MODEL_ROUTER_LLAMA_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b12110}"
+# b12375 is the latest published CUDA image (v1.0.0, 2026-11-14): FP8 KV,
+#   GDN cleanup, scheduler/graph reuse, few-row MMQ for MTP, tool-arg escaping.
+docker_image="${MODEL_ROUTER_LLAMA_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda-b12375}"
 base_file="Qwen3.8-27B-GSQ-RCO-IQ3_S.gguf"
 mtp_file="Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf"
 mmproj_file_name="mmproj-Qwen3.8-27B-BF16.gguf"
@@ -59,7 +60,7 @@ usage: $(basename -- "$0") [--profile speed|range|max|duo|duo128|quad|vision] [-
   -- <args...>    extra args appended to llama-server
 
 Env:
-  MODEL_ROUTER_LLAMA_IMAGE    image tag (default: server-cuda-b12110, pinned)
+  MODEL_ROUTER_LLAMA_IMAGE    image tag (default: server-cuda-b12375, pinned)
   MODEL_ROUTER_GGUF_DIR       model dir (default: <stack>/models)
   MODEL_ROUTER_SLOT_CACHE_DIR host dir bound to /slot-cache for slot save/restore
                         (default: <stack>/slot-cache)
