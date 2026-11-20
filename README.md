@@ -2,7 +2,7 @@
 
 `llama-server` launcher for Qwen3.8-27B GSQ/RCO GGUF on RTX 4090 via Docker.
 
-- `serve-llama.sh` — profiles speed/range/max/duo/duo128/quad, VRAM pre-flight gate
+- `serve-llama.sh` — profiles speed/single200/range/max/duo/duo128/quad/vision, VRAM pre-flight gate
 - `models/` — local `.gguf` artifacts (git-ignored)
 
 Run `./check.sh` to validate.
@@ -28,3 +28,58 @@ b12464 brings the jinja rendering cut (#32023), `server_slot_sched` refactor
 (#32154), kv-cells removal scan (#32380), CUDA cooperative softmax (#28982) and
 connection reuse after streaming (#30492). The recurrent-state fixes
 (#31913/#32434/#32137) are **not** in this build and remain the next bump.
+
+## MTP draft depth
+
+`speed` and `single200` share `mtp_n` (top of `serve-llama.sh`). It is 3 as of
+2026-11-20. The sweep below picked the depth (single200, 3 runs per depth,
+sequential):
+
+| n | decode t/s | vs n=2 | draft acceptance | VRAM |
+|---|---|---|---|---|
+| 1 | 77.6 | -11.8% | 76.4% | 19.4 GiB |
+| 2 | 88.0 | — | 63.4% | 19.8 GiB |
+| 3 | **92.1** | **+4.1%** | 57.1% | 19.9 GiB |
+| 4 | 93.7 | +6.5% | 48.0% | 20.0 GiB |
+
+n=4 gains only 1.7% over n=3 while acceptance drops 9 points and it costs
+~100 MiB more, so the extra depth is paying for drafts that get rejected.
+
+Decode drifts ±3% run to run, so the number to trust is the interleaved A/B
+(n=2, n=3, n=2, n=3, ...), which also removes thermal/session drift:
+
+| profile | n=2 | n=3 | paired delta | VRAM |
+|---|---|---|---|---|
+| single200 (200K) | 89.4 t/s | 96.0 t/s | **+6.7%** (+6.7/+8.0/+5.8 per cycle) | 19.95 → 20.06 GiB |
+| speed (64K) | 85.6 t/s | 94.5 t/s | **+10.4%** | 16.5 → 16.6 GiB |
+
+Acceptance stays deterministic (140 drafts / 80 accepted on single200, 112/71
+at n=2); only wall-clock decode moves.
+
+Rollback without editing the script: `-- --spec-draft-n-max 2` (extra args are
+forwarded verbatim to llama-server).
+
+Greedy output is deterministic *per depth* (5 runs: n=2 byte-identical, n=3
+byte-identical) but flips between depths at near-ties: the first divergence
+here is `n <= 1` vs `n == 0`, with a top-1/top-2 margin of 0.10-0.13 nats.
+Different draft depth means different verification batch shapes, so the
+reduction order changes and greedy argmax can flip. Both texts are valid; this
+is not draft-token leakage.
+
+## Prompt cache and the tool list
+
+The server matches the cached prefix head-first, so the exact `tools` array is
+part of the head. Measured on single200 with a 5-tool list:
+
+| request | prompt_n | cache_n | prefill |
+|---|---|---|---|
+| same order, growing history | 453-494 | 490 → 1390 | ~360 ms |
+| tools reversed | 2292 | 0 | 1035 ms |
+| reversed again | 4 | 2288 | 81 ms |
+| back to the original order | 453 | 1839 | 335 ms |
+
+A reordered list costs one full re-prefill; repeating either order reuses.
+The router forwards the body verbatim and does **not** canonicalize the array:
+clients today send a stable order, and sorting would change what the model
+sees for a case that has not been observed in real traffic. If a client is
+seen shuffling tools mid-session, sort the list by name at the relay.

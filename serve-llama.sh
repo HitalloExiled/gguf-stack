@@ -9,7 +9,7 @@
 #                  [-- <extra llama-server args...>]
 #
 # Profiles (article recipe, tuned for 24GB):
-#   speed:  MTP draft file, 64K ctx, q4_0 KV, draft-mtp n=2  (~42 tok/s class)
+#   speed:  MTP draft file, 64K ctx, q4_0 KV, draft-mtp n=3  (~42 tok/s class)
 #   range:  base file, 96K ctx, q8_0 KV                       (bigger window)
 #
 # Exit codes: 0 ok, 1 usage, 2 missing image/model, 3 insufficient VRAM.
@@ -37,9 +37,9 @@ usage: $(basename -- "$0") [--profile speed|range|max|duo|duo128|quad|vision] [-
        [-- <extra llama-server args...>]
 
   --profile speed|range|max|duo|duo128|quad|vision|single200  preset (default: range)
-                            speed:  MTP draft file, 64K ctx, q4_0 KV, draft-mtp n=2
+                            speed:  MTP draft file, 64K ctx, q4_0 KV, draft-mtp n=3
                             range:  base file, 96K ctx, q8_0 KV
-                            single200: MTP draft file, 200K ctx, q4_0 KV, draft-mtp n=2
+                            single200: MTP draft file, 200K ctx, q4_0 KV, draft-mtp n=3
                             max:    base file, 256K ctx, q4_0 KV, no spec
                             duo:    base file, 2x96K slots, q4_0 KV, no spec
                                     (two independent sessions)
@@ -77,6 +77,10 @@ port="${MODEL_ROUTER_LLAMA_PORT:-18090}"
 host="127.0.0.1"
 ctx_override=""
 parallel_slots="1"
+# Draft depth for the MTP profiles. n=3 measured +4% decode over n=2 on the
+# 4090 (2026-11-20: 88.0 -> 92.1 t/s) for ~150 MiB more; n=4 added only noise
+# and cost ~300 MiB with 48% acceptance.
+mtp_n="3"
 mmproj_mode="auto"
 estimate_only=0
 dry_run=0
@@ -133,8 +137,8 @@ fi
 case "$profile" in
   speed)
     file="$gguf_dir/$mtp_file"; ctx=65536; kv_type="q4_0"
-    spec=(--spec-type draft-mtp --spec-draft-n-max 2)
-    profile_label="MTP draft file, 64K context, q4_0 KV, draft-mtp n=2" ;;
+    spec=(--spec-type draft-mtp --spec-draft-n-max "$mtp_n")
+    profile_label="MTP draft file, 64K context, q4_0 KV, draft-mtp n=$mtp_n" ;;
   range)
     file="$gguf_dir/$base_file"; ctx=98304; kv_type="q8_0"
     spec=()
@@ -170,11 +174,11 @@ case "$profile" in
     spec=()
     profile_label="base file + mmproj, 64K context, q8_0 KV, no spec" ;;
   single200)
-    # MTP draft file, 200K context, q4_0 KV, draft-mtp n=2, single session.
+    # MTP draft file, 200K context, q4_0 KV, single session.
     # MTP needs ~draft/28 of KV overhead; 200K * q4_0 fits the 24GB card.
     file="$gguf_dir/$mtp_file"; ctx=204800; kv_type="q4_0"
-    spec=(--spec-type draft-mtp --spec-draft-n-max 2)
-    profile_label="MTP draft file, 200K context, q4_0 KV, draft-mtp n=2" ;;
+    spec=(--spec-type draft-mtp --spec-draft-n-max "$mtp_n")
+    profile_label="MTP draft file, 200K context, q4_0 KV, draft-mtp n=$mtp_n" ;;
   *) printf 'Unknown --profile: %s (want speed|range|max|duo|duo128|quad|vision|single200)\n' "$profile" >&2; exit 1 ;;
 esac
 if [[ -n "$ctx_override" ]]; then ctx="$ctx_override"; fi
