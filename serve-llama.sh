@@ -20,11 +20,12 @@ export LC_ALL=C LC_NUMERIC=C
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 gguf_dir_default="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/models"
 # Pin the build: the floating :server-cuda tag moves on every upstream build.
-# Bump this ref deliberately after a smoke test. The pin is a digest: b12679
-# (revision af5c5834, 2026-11-24), which also has a per-build tag
-# server-cuda-b12679. Rollback: the previous b12464 digest
-# sha256:ae96e52f8b2106ea82bad786ee2d08bb9b0a8c93403df9c27ae1bf065a118089.
-docker_image="${MODEL_ROUTER_LLAMA_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:fbd1c7239e4a14fdb973aa114add9ab7057f10ff632f6147890ff1843a607f3b}"
+# Bump this ref deliberately, and only when the A/B shows a real gain. The pin
+# is a digest: b12464 (revision d3c3e24, 2026-11-17). b12679 was evaluated on
+# 2026-11-24 and rolled back (no throughput gain, prefill -5.6%; its recurrent
+# fixes #31913/#32434/#32137 are latent and were never observed). Rollback of
+# this pin: server-cuda-b12375.
+docker_image="${MODEL_ROUTER_LLAMA_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:ae96e52f8b2106ea82bad786ee2d08bb9b0a8c93403df9c27ae1bf065a118089}"
 base_file="Qwen3.8-27B-GSQ-RCO-IQ3_S.gguf"
 mtp_file="Qwen3.8-27B-GSQ-RCO-IQ3_S-mtp.gguf"
 mmproj_file_name="mmproj-Qwen3.8-27B-BF16.gguf"
@@ -61,8 +62,8 @@ usage: $(basename -- "$0") [--profile speed|range|max|duo|duo128|quad|vision] [-
   -- <args...>    extra args appended to llama-server
 
 Env:
-  MODEL_ROUTER_LLAMA_IMAGE    image ref (default: server-cuda@sha256:fbd1c723…
-                        = b12679; rollback b12464 digest ae96e52f…)
+  MODEL_ROUTER_LLAMA_IMAGE    image ref (default: server-cuda@sha256:ae96e52f…
+                        = b12464; rollback server-cuda-b12375)
   MODEL_ROUTER_GGUF_DIR       model dir (default: <stack>/models)
   MODEL_ROUTER_SLOT_CACHE_DIR host dir bound to /slot-cache for slot save/restore
                         (default: <stack>/slot-cache)

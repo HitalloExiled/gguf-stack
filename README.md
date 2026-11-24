@@ -11,36 +11,33 @@ Run `./check.sh` to validate.
 
 The CUDA image is pinned **by digest** in `BackendManager` and `serve-llama.sh`:
 
-    ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:fbd1c7239e4a...
+    ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:ae96e52f8b21...
 
-`b12679` (revision `af5c5834`, 2026-11-24). The digest also has a matching
-per-build tag `server-cuda-b12679`; it is master HEAD, ~4 commits ahead of the
-last release tag `b12675`. It stays pinned by digest because the mutable
-`server-cuda` tag moves on every upstream build and the digest is what actually
-freezes the build.
+`b12464` (revision `d3c3e24`, 2026-11-17). Per-build `server-cuda-bXXXX` tags
+stopped at `b12429`, so the mutable `server-cuda` tag is the only channel and
+the digest is what actually freezes the build.
 
-Rollback: `ghcr.io/ggml-org/llama.cpp:server-cuda@sha256:ae96e52f8b21...`
-(= `b12464`) via `MODEL_ROUTER_LLAMA_IMAGE` (and `b12375` before that).
+Rollback: `ghcr.io/ggml-org/llama.cpp:server-cuda-b12375` via
+`MODEL_ROUTER_LLAMA_IMAGE` (and `b12110`/v0.9.0 before that).
 
-Previous A/B (2026-11-20, b12464 vs b12375), same model/prompt, 3 runs per
-profile for single200: prefill 2461.8 → 2431.6 t/s (-1.2%), decode 89.1 → 88.5
-(-0.7%), MTP 112/71 and VRAM unchanged. Across max/duo/quad/vision the deltas
-stayed within run-to-run noise; slot save/restore 200/200 (cache_n 3,862), tool
-call and vision pass.
+A/B 2026-11-20, same model/prompt, 3 runs per profile for single200:
+prefill 2461.8 → 2431.6 t/s (-1.2%), decode 89.1 → 88.5 (-0.7%), MTP 112/71 and
+VRAM unchanged. Across max/duo/quad/vision the deltas stayed within run-to-run
+noise; slot save/restore 200/200 (cache_n 3,862), tool call and vision pass.
+b12464 brings the jinja rendering cut (#32023), `server_slot_sched` refactor
+(#32154), kv-cells removal scan (#32380), CUDA cooperative softmax (#28982) and
+connection reuse after streaming (#30492).
 
-b12679 brings the recurrent-state fixes that were the open bump target: sticky
-NaN in recurrent state (#31913), `slot_sched` fix for LoRA and recurrent
-(#32434) and the k-pool layout prefix on sequence edits (#32137), plus ~200
-commits since b12464. These matter here because Qwen3.8 is hybrid/recurrent.
+### Evaluated and rejected: b12679 (2026-11-24)
 
-A/B 2026-11-24 (b12679 vs b12464), single200 with `mtp_n=3`, ~4.8K-token
-prompt + 128-token decode, 3 runs per boot and 2 boots per image: prefill
-2566.6 → 2423.8 t/s (-5.6%), decode 85.8 → 84.0 t/s (-2.1%, within noise),
-MTP draft acceptance 0.49–0.58 and mean len 2.4–2.7 on both. Slot
-save/restore 4915/4915 (b12464) vs 4914/4914 (b12679) with the draft state
-restored; tool call and vision pass on both. The prefill delta tracked the
-image (not boot order), so it looks real — likely one of the ~200 commits —
-and is accepted in exchange for the recurrent-state fixes.
+b12679 (revision `af5c5834`) carried the recurrent-state fixes #31913 (sticky
+NaN), #32434 (slot_sched for LoRA/recurrent) and #32137 (k-pool layout prefix),
+plus ~200 commits. A/B against b12464 (single200, `mtp_n=3`, ~4.8K-token prompt
++ 128-token decode, 3 runs per boot, 2 boots per image) showed **no real gain**:
+prefill 2566.6 → 2423.8 t/s (**-5.6%**), decode 85.8 → 84.0 (-2.1%, noise),
+slot save/restore 4915/4915 vs 4914/4914, tool call and vision at parity. The
+three fixes are latent (never observed in our traffic), so the bump is deferred
+until a release brings a measurable win or one of those failure modes shows up.
 
 ## MTP draft depth
 
